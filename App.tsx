@@ -98,7 +98,7 @@ export default function App() {
   }, [user]);
 
   // Fetch latest data from backend
-  const refreshData = useCallback(async () => {
+    const refreshData = useCallback(async () => {
     if (!user) return;
     try {
         const txs = await wallet.getActivity();
@@ -112,11 +112,39 @@ export default function App() {
     }
   }, [user]);
 
-  useEffect(() => {
-    if (user) {
-        refreshData();
-    }
-  }, [user, refreshData]);
+    const resolveTagUid = (tag: any): string | null => {
+        return tag?.tagUid || tag?.tag_uid || tag?.uid || tag?.serialNumber || null;
+    };
+
+    const refreshTags = useCallback(async () => {
+        if (!user) return;
+        try {
+                const tagList = await tags.getAll();
+                if (!Array.isArray(tagList)) {
+                        console.error('Invalid tags response:', tagList);
+                        return;
+                }
+
+                const resolvedTag = tagList.length > 0 ? resolveTagUid(tagList[0]) : null;
+
+                if (resolvedTag && resolvedTag !== user.nfcTagId) {
+                        setUser(prev => prev ? ({ ...prev, nfcTagId: resolvedTag }) : prev);
+                }
+
+                if (!resolvedTag && user.nfcTagId) {
+                        setUser(prev => prev ? ({ ...prev, nfcTagId: null }) : prev);
+                }
+        } catch (e) {
+                console.error('Failed to fetch tags', e);
+        }
+    }, [user]);
+
+    useEffect(() => {
+        if (user) {
+                refreshData();
+                refreshTags();
+        }
+    }, [user, refreshData, refreshTags]);
 
   // Calculate spending data dynamically from history
   const spendingData = useMemo(() => {
@@ -206,7 +234,10 @@ export default function App() {
 
     const enrollTag = async (tagUid: string) => {
         try {
-            await tags.enroll(tagUid);
+            const response = await tags.enroll(tagUid);
+            if (response?.msg !== 'Enrolled') {
+                throw new Error(response?.error || 'Tag enrollment failed');
+            }
             setUser(prev => prev ? ({ ...prev, nfcTagId: tagUid }) : prev);
             setEnrollStatus('success');
             setTimeout(() => {
