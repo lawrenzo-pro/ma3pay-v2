@@ -45,6 +45,8 @@ enum View {
   SHARE
 }
 
+const MATATU_PHONE = '0795182243';
+
 export default function App() {
   const [view, setView] = useState<View>(View.AUTH);
   const [user, setUser] = useState<UserProfile | null>(null);
@@ -314,8 +316,24 @@ export default function App() {
             return;
         }
 
-        finalizeFarePayment(route, price);
-        setIsFarePaying(false);
+        try {
+            await wallet.transfer(MATATU_PHONE, price);
+            await refreshData();
+            setView(View.HOME);
+            setScannedId('');
+            setSelectedRouteId(null);
+            setScanStatus('idle');
+            setScanError('');
+            setShowTopUp(false);
+        } catch (error: any) {
+            const msg = error.response?.data?.error
+                || error.response?.data?.message
+                || error.message
+                || 'Fare payment failed.';
+            setFareError(msg);
+        } finally {
+            setIsFarePaying(false);
+        }
     };
 
     const handleSendStkPush = async () => {

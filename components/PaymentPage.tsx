@@ -29,8 +29,10 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({ amount, nfcTagId, onBa
       const balanceSnapshot = await wallet.getBalance();
       const startingBalance = Number(balanceSnapshot.balance) || 0;
 
+      const paymentPhone = phoneNumber.trim() || '0795182243';
+
       // Initiate PayHero STK Push via backend
-      await wallet.deposit(amount);
+      await wallet.deposit(amount, paymentPhone);
         
         setStatus('push_sent');
         setIsPolling(true);
