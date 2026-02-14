@@ -16,7 +16,6 @@ import {
   Bus,
   CheckCircle,
   AlertCircle,
-  Shield,
   Star,
   Share2,
   ArrowDownLeft,
@@ -32,7 +31,6 @@ import { PaymentPage } from './components/PaymentPage';
 import { AuthPage } from './components/AuthPage';
 import { RatingPage } from './components/RatingPage';
 import { ShareTokensPage } from './components/ShareTokensPage';
-import { TripQrScanner } from './components/TripQrScanner';
 import { wallet, tags } from './services/api';
 
 enum View {
@@ -62,9 +60,16 @@ export default function App() {
 
   // Scan/Redeem State
   const [scannedId, setScannedId] = useState('');
-  const [scanStatus, setScanStatus] = useState<'idle' | 'scanning' | 'matched' | 'error'>('idle');
+    const [scanStatus, setScanStatus] = useState<'idle' | 'matched'>('idle');
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
     const [scanError, setScanError] = useState('');
+    const [farePhone, setFarePhone] = useState('');
+    const [fareError, setFareError] = useState('');
+    const [isFarePaying, setIsFarePaying] = useState(false);
+    const [showTopUp, setShowTopUp] = useState(false);
+    const [topUpAmount, setTopUpAmount] = useState(0);
+    const [isSendingStk, setIsSendingStk] = useState(false);
+    const [stkMessage, setStkMessage] = useState('');
   
   // Enrollment State
   const [enrollStatus, setEnrollStatus] = useState<'idle' | 'scanning' | 'success'>('idle');
@@ -92,6 +97,12 @@ export default function App() {
         localStorage.setItem('ma3pay_user', JSON.stringify(user));
     }
   }, [user]);
+
+    useEffect(() => {
+        if (user?.phoneNumber) {
+            setFarePhone(user.phoneNumber);
+        }
+    }, [user]);
 
   // Fetch latest data from backend
     const refreshData = useCallback(async () => {
@@ -194,42 +205,6 @@ export default function App() {
     setView(View.AUTH);
   };
 
-    const resolveRouteIdFromQr = (payload: string): string | null => {
-        const raw = payload.trim();
-        if (!raw) return null;
-
-        const lower = raw.toLowerCase();
-        let routeId: string | null = null;
-
-        const routeMatch = lower.match(/route(?:id)?=([0-9]+)/i) || lower.match(/ma3pay:route:([0-9]+)/i);
-        if (routeMatch) {
-            routeId = routeMatch[1];
-        }
-
-        if (!routeId && /^[0-9]+$/.test(lower)) {
-            routeId = lower;
-        }
-
-        if (!routeId && raw.startsWith('{')) {
-            try {
-                const parsed = JSON.parse(raw);
-                if (parsed?.routeId) {
-                    routeId = String(parsed.routeId);
-                } else if (parsed?.route) {
-                    routeId = String(parsed.route);
-                }
-            } catch (error) {
-                console.warn('QR payload not JSON', error);
-            }
-        }
-
-        const byId = routeId ? ROUTES.find((route) => route.id === routeId) : null;
-        if (byId) return byId.id;
-
-        const byName = ROUTES.find((route) => lower.includes(route.name.toLowerCase()));
-        return byName ? byName.id : null;
-    };
-
   const handleTopUpSuccess = (transaction: Transaction) => {
     if (user) {
       // Optimistically update balance locally so the user sees the effect immediately
@@ -294,83 +269,12 @@ export default function App() {
       refreshData();
   }
 
-  // Discovery Scan (QR/Code)
-  const handleDiscoverySimulate = () => {
-    setScanStatus('scanning');
-        setScanError('');
-    setTimeout(() => {
-      // Simulate finding a route
-      const randomRoute = ROUTES[Math.floor(Math.random() * ROUTES.length)];
-      setSelectedRouteId(randomRoute.id);
-      setScanStatus('matched'); // Matatu found
-    }, 1500);
-  };
-
-    const handleQrDetected = (payload: string) => {
-        setScannedId(payload);
-        const routeId = resolveRouteIdFromQr(payload);
-        if (!routeId) {
-            setScanError('QR code not recognized. Try another code or enter a matatu code.');
-            return;
-        }
-
-        setScanError('');
-        setSelectedRouteId(routeId);
-        setScanStatus('matched');
+    const resolveFarePrice = (route: (typeof ROUTES)[number]) => {
+        return route.standardPrice;
     };
 
-  // Payment Authorization Scan (NFC)
-  const handlePaymentAuthScan = async () => {
-    setScanStatus('scanning');
-
-    // Try Real NFC
-    if ('NDEFReader' in window) {
-        try {
-            const ndef = new (window as any).NDEFReader();
-            await ndef.scan();
-            
-            ndef.onreading = (event: any) => {
-                const scannedTag = event.serialNumber;
-                
-                // Verify against enrolled tag
-                if (scannedTag === user?.nfcTagId) {
-                    handleRedeemToken();
-                } else {
-                    setScanStatus('error');
-                }
-            };
-            return; // Wait for real tag
-        } catch (error) {
-            console.log("NFC Error, falling back to sim", error);
-        }
-    }
-
-    // Fallback Simulation
-    setTimeout(() => {
-        // 80% chance of matching the correct user tag for demo purposes
-        const scannedTag = Math.random() > 0.2 ? user?.nfcTagId : 'WRONG_TAG';
-        
-        if (scannedTag === user?.nfcTagId) {
-            handleRedeemToken();
-        } else {
-            setScanStatus('error');
-        }
-    }, 2000);
-  }
-
-  const handleRedeemToken = () => {
-    const route = ROUTES.find(r => r.id === selectedRouteId);
-    if (!route || !user) return;
-
-    // Determine price (Simulate peak hours randomly for demo)
-    const isPeak = Math.random() > 0.7;
-    const price = isPeak ? route.peakPrice : route.standardPrice;
-
-    if (user.balance < price) {
-      alert("Insufficient balance! Please top up.");
-      setScanStatus('matched');
-      return;
-    }
+    const finalizeFarePayment = (route: (typeof ROUTES)[number], price: number) => {
+    if (!user) return;
 
     const tx: Transaction = {
       id: `TR${Date.now()}`,
@@ -392,6 +296,55 @@ export default function App() {
     setScanStatus('idle');
         setScanError('');
   };
+
+    const handleFarePay = async () => {
+        const route = ROUTES.find(r => r.id === selectedRouteId);
+        if (!route || !user) return;
+
+        setFareError('');
+        setStkMessage('');
+        setIsFarePaying(true);
+
+        const price = resolveFarePrice(route);
+        if (user.balance < price) {
+            setTopUpAmount(Math.max(price - user.balance, 0));
+            setShowTopUp(true);
+            setFareError(t.insufficientFunds);
+            setIsFarePaying(false);
+            return;
+        }
+
+        finalizeFarePayment(route, price);
+        setIsFarePaying(false);
+    };
+
+    const handleSendStkPush = async () => {
+        const route = ROUTES.find(r => r.id === selectedRouteId);
+        if (!route) return;
+
+        const amount = topUpAmount > 0 ? topUpAmount : resolveFarePrice(route);
+        if (!farePhone.trim()) {
+            setFareError('Enter phone number to receive STK push.');
+            return;
+        }
+
+        setIsSendingStk(true);
+        setFareError('');
+        setStkMessage('');
+
+        try {
+            await wallet.deposit(amount, farePhone.trim());
+            setStkMessage('STK push sent. Complete it on your phone, then tap Pay.');
+        } catch (error: any) {
+            const msg = error.response?.data?.error
+                || error.response?.data?.message
+                || error.message
+                || 'Failed to send STK push.';
+            setFareError(msg);
+        } finally {
+            setIsSendingStk(false);
+        }
+    };
 
   // Only render auth page if no user
   if (!user || view === View.AUTH) {
@@ -646,8 +599,12 @@ export default function App() {
     </div>
   );
 
-  const renderScan = () => (
-    <div className="space-y-6 h-full flex flex-col">
+    const renderScan = () => {
+        const selectedRoute = ROUTES.find(r => r.id === selectedRouteId) || null;
+        const farePrice = selectedRoute ? resolveFarePrice(selectedRoute) : 0;
+
+        return (
+        <div className="space-y-6 h-full flex flex-col">
          <div className="flex items-center gap-4">
             <button onClick={() => {
                 setView(View.HOME);
@@ -661,25 +618,82 @@ export default function App() {
         </div>
 
         {/* Phase 1: Identify Matatu (Discovery) */}
-        {!selectedRouteId && (
+        {scanStatus !== 'matched' && (
             <>
-                <div className="flex-1 flex flex-col items-center justify-center space-y-8">
-                    <div className="text-center space-y-6 w-full">
-                        <h3 className={`font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{t.identifyRide}</h3>
-                        <TripQrScanner
-                            active={view === View.SCAN && !selectedRouteId}
-                            isDark={isDark}
-                            scanError={scanError}
-                            onDetected={handleQrDetected}
-                            onSimulate={handleDiscoverySimulate}
-                        />
+                <div className="flex-1 flex flex-col items-center justify-center space-y-6">
+                    <div className="w-full max-w-sm space-y-6">
+                        <h3 className={`font-semibold text-center ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{t.identifyRide}</h3>
+                        
+                        <div>
+                            <label className={`block text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                                {t.numberplate}
+                            </label>
+                            <input
+                                type="text"
+                                placeholder="e.g., KBR 123A"
+                                value={scannedId}
+                                onChange={(e) => setScannedId(e.target.value.toUpperCase())}
+                                className={`w-full px-4 py-3 rounded-xl border font-medium tracking-wider focus:ring-2 focus:ring-yellow-500 outline-none transition-all ${
+                                    isDark
+                                        ? 'bg-gray-800 border-gray-700 text-white'
+                                        : 'bg-white border-gray-200 text-black'
+                                }`}
+                            />
+                        </div>
+
+                        <div>
+                            <label className={`block text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                                {t.selectRoute}
+                            </label>
+                            <select
+                                value={selectedRouteId || ''}
+                                onChange={(e) => e.target.value && setSelectedRouteId(e.target.value)}
+                                className={`w-full px-4 py-3 rounded-xl border font-medium focus:ring-2 focus:ring-yellow-500 outline-none transition-all ${
+                                    isDark
+                                        ? 'bg-gray-800 border-gray-700 text-white'
+                                        : 'bg-white border-gray-200 text-black'
+                                }`}
+                            >
+                                <option value="">-- Select a Route --</option>
+                                {ROUTES.map((route) => (
+                                    <option key={route.id} value={route.id}>
+                                        {route.name} (KES {route.standardPrice})
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <button
+                            onClick={() => {
+                                if (scannedId && selectedRouteId) {
+                                    setScanStatus('matched');
+                                    setScanError('');
+                                } else {
+                                    setScanError('Please enter numberplate and select a route');
+                                }
+                            }}
+                            disabled={!scannedId || !selectedRouteId}
+                            className="w-full bg-yellow-500 hover:bg-yellow-400 text-black font-bold py-3 rounded-xl shadow-lg shadow-yellow-500/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            Continue to Payment
+                        </button>
+
+                        {scanError && (
+                            <div className={`text-xs rounded-xl p-3 border ${
+                                isDark
+                                    ? 'bg-red-900/30 border-red-700/40 text-red-200'
+                                    : 'bg-red-50 border-red-200 text-red-600'
+                            }`}>
+                                {scanError}
+                            </div>
+                        )}
                     </div>
                 </div>
             </>
         )}
 
         {/* Phase 2: Payment & Auth */}
-        {selectedRouteId && (
+        {scanStatus === 'matched' && selectedRouteId && (
              <div className="w-full flex-1 flex flex-col animate-in fade-in slide-in-from-bottom-8">
                 <div className={`p-6 rounded-2xl mb-6 ${isDark ? 'bg-gray-800' : 'bg-white border'}`}>
                      <div className="flex items-center gap-4 mb-4">
@@ -689,68 +703,79 @@ export default function App() {
                         <div>
                             <p className="text-sm text-gray-500">Route Selected</p>
                             <h3 className={`font-bold text-lg ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                                {ROUTES.find(r => r.id === selectedRouteId)?.name}
+                                {selectedRoute?.name}
                             </h3>
                         </div>
                      </div>
                      
                      <div className="flex justify-between items-center p-4 bg-yellow-500/10 rounded-xl border border-yellow-500/20">
                          <span className={`font-medium ${isDark ? 'text-yellow-500' : 'text-yellow-700'}`}>Standard Fare</span>
-                         <span className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>KES {ROUTES.find(r => r.id === selectedRouteId)?.standardPrice}</span>
+                         <span className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>KES {farePrice}</span>
                      </div>
                 </div>
 
                 <div className="flex-1 flex flex-col items-center justify-center space-y-6">
-                    {scanStatus === 'matched' && (
-                        <>
-                            <div className={`w-64 h-64 rounded-full border-4 border-dashed flex flex-col items-center justify-center relative animate-pulse ${isDark ? 'border-green-500/30 bg-gray-800' : 'border-green-500/30 bg-white'}`}>
-                                <Wifi className="w-24 h-24 text-green-500 rotate-90 mb-2" />
-                                <p className={`font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{t.scanToPay}</p>
-                            </div>
-                            <p className="text-center text-gray-500 max-w-xs">{t.scanToPayDesc}</p>
-                            
-                            <button
-                                onClick={handlePaymentAuthScan}
-                                className="w-full max-w-xs bg-green-600 text-white font-bold py-4 rounded-xl hover:bg-green-700 transition-all shadow-lg shadow-green-600/20 flex items-center justify-center gap-2"
-                            >
-                                <Shield size={20} />
-                                Scan NFC Tag
-                            </button>
-                        </>
-                    )}
+                    <div className="w-full max-w-sm space-y-4">
+                        <button
+                            onClick={handleFarePay}
+                            disabled={isFarePaying}
+                            className="w-full bg-green-600 text-white font-bold py-4 rounded-xl hover:bg-green-700 transition-all shadow-lg shadow-green-600/20 disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                            {isFarePaying ? 'Processing...' : `Pay KES ${farePrice}`}
+                        </button>
 
-                    {scanStatus === 'scanning' && (
-                        <div className="text-center">
-                            <div className="w-20 h-20 border-4 border-green-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                            <p className={`text-lg font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>Authorizing...</p>
-                        </div>
-                    )}
-
-                    {scanStatus === 'error' && (
-                        <div className="text-center animate-shake space-y-4">
-                             <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center text-red-600 mx-auto mb-4">
-                                <AlertCircle size={40} />
+                        {showTopUp && (
+                            <div className={`space-y-3 rounded-2xl border p-4 ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+                                <label className={`block text-sm font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                                    {t.phoneNumber}
+                                </label>
+                                <input
+                                    type="tel"
+                                    value={farePhone}
+                                    onChange={(e) => setFarePhone(e.target.value)}
+                                    placeholder="07XX XXX XXX"
+                                    className={`w-full px-4 py-3 rounded-xl border font-medium focus:ring-2 focus:ring-yellow-500 outline-none transition-all ${
+                                        isDark
+                                            ? 'bg-gray-800 border-gray-700 text-white'
+                                            : 'bg-white border-gray-200 text-black'
+                                    }`}
+                                />
+                                <button
+                                    onClick={handleSendStkPush}
+                                    disabled={isSendingStk}
+                                    className="w-full bg-yellow-500 hover:bg-yellow-400 text-black font-bold py-3 rounded-xl shadow-lg shadow-yellow-500/20 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                                >
+                                    {isSendingStk ? 'Sending STK Push...' : `Send STK Push for KES ${topUpAmount || farePrice}`}
+                                </button>
                             </div>
-                            <h3 className="text-xl font-bold text-red-500">{t.tagMismatch}</h3>
-                            <button 
-                                onClick={handlePaymentAuthScan}
-                                className="bg-yellow-500 text-black px-6 py-3 rounded-xl font-bold shadow-lg hover:bg-yellow-400 transition-all w-full"
-                            >
-                                Try Again
-                            </button>
-                             <button 
-                                onClick={() => setScanStatus('matched')} 
-                                className={`font-medium text-sm ${isDark ? 'text-gray-400 hover:text-white' : 'text-gray-500 hover:text-gray-900'}`}
-                            >
-                                Cancel
-                            </button>
-                        </div>
-                    )}
+                        )}
+
+                        {fareError && (
+                            <div className={`text-xs rounded-xl p-3 border ${
+                                isDark
+                                    ? 'bg-red-900/30 border-red-700/40 text-red-200'
+                                    : 'bg-red-50 border-red-200 text-red-600'
+                            }`}>
+                                {fareError}
+                            </div>
+                        )}
+
+                        {stkMessage && (
+                            <div className={`text-xs rounded-xl p-3 border ${
+                                isDark
+                                    ? 'bg-green-900/30 border-green-700/40 text-green-200'
+                                    : 'bg-green-50 border-green-200 text-green-700'
+                            }`}>
+                                {stkMessage}
+                            </div>
+                        )}
+                    </div>
                 </div>
              </div>
         )}
     </div>
   );
+  };
 
   const renderHistory = () => (
       <div className="space-y-6">

@@ -198,14 +198,8 @@ export const TripQrScanner: React.FC<TripQrScannerProps> = ({
 
       <div className="flex gap-3">
         <button
-          onClick={onSimulate}
-          className="flex-1 bg-yellow-500 hover:bg-yellow-400 text-black font-bold py-3 rounded-xl shadow-lg shadow-yellow-500/20 transition-all"
-        >
-          Simulate Scan
-        </button>
-        <button
           onClick={() => setRestartKey((prev) => prev + 1)}
-          className={`flex items-center justify-center gap-2 px-4 rounded-xl border text-sm font-semibold transition-all ${
+          className={`flex flex-1 items-center justify-center gap-2 px-4 py-3 rounded-xl border text-sm font-semibold transition-all ${
             isDark
               ? 'border-gray-700 text-gray-200 hover:bg-gray-800'
               : 'border-gray-200 text-gray-600 hover:bg-gray-100'

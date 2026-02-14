@@ -38,8 +38,9 @@ export const wallet = {
     /**
      * Initiate a deposit via backend (PayHero STK Push).
      */
-    deposit: async (amount: number) => {
-        const response = await api.post('/wallet/deposit', { amount });
+    deposit: async (amount: number, phone?: string) => {
+        const payload = phone ? { amount, phone } : { amount };
+        const response = await api.post('/wallet/deposit', payload);
         return response.data;
     },
     getBalance: async () => {
