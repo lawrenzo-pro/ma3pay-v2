@@ -476,8 +476,7 @@ export default function App() {
       <div className="grid grid-cols-2 gap-4">
         <button 
             onClick={() => setView(View.SCAN)}
-            disabled={!user.nfcTagId}
-            className={`p-4 rounded-2xl shadow-sm border flex flex-col items-center gap-2 transition-all group disabled:opacity-50 disabled:cursor-not-allowed ${
+            className={`p-4 rounded-2xl shadow-sm border flex flex-col items-center gap-2 transition-all group ${
                 isDark ? 'bg-gray-800 border-gray-700 hover:bg-gray-700' : 'bg-white border-gray-100 hover:bg-gray-50'
             }`}
         >
@@ -833,8 +832,7 @@ export default function App() {
             </button>
             <button 
                 onClick={() => setView(View.SCAN)}
-                disabled={!user.nfcTagId}
-                className={`flex flex-col items-center gap-1 ${view === View.SCAN ? 'text-yellow-500' : 'text-gray-400 hover:text-gray-500'} disabled:opacity-50`}
+                className={`flex flex-col items-center gap-1 ${view === View.SCAN ? 'text-yellow-500' : 'text-gray-400 hover:text-gray-500'}`}
             >
                 <div className={`p-3 rounded-full -mt-8 shadow-lg border-4 transition-all ${isDark ? 'bg-yellow-500 text-black border-gray-900' : 'bg-black text-white border-gray-50'} ${view === View.SCAN ? 'scale-110' : ''}`}>
                     <Scan size={24} />
