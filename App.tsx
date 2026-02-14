@@ -9,8 +9,6 @@ import {
   ArrowRight,
   Wallet,
   Scan,
-  QrCode,
-  Keyboard,
   Moon,
   Sun,
   Languages,
@@ -66,8 +64,6 @@ export default function App() {
   const [scannedId, setScannedId] = useState('');
   const [scanStatus, setScanStatus] = useState<'idle' | 'scanning' | 'matched' | 'error'>('idle');
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
-  const [payMethod, setPayMethod] = useState<'qr' | 'code'>('qr'); // Only for discovery now
-  const [manualCode, setManualCode] = useState('');
     const [scanError, setScanError] = useState('');
   
   // Enrollment State
@@ -281,10 +277,9 @@ export default function App() {
     }, 2000);
   }
 
-  const handleTransferSuccess = (amount: number, recipient: string) => {
+    const handleTransferSuccess = (newBalance: number, _amount: number, _recipient: string) => {
       if (!user) return;
-      // Optimistic update: Subtract funds locally
-      setUser(prev => prev ? ({ ...prev, balance: prev.balance - amount }) : null);
+      setUser(prev => prev ? ({ ...prev, balance: newBalance }) : null);
       refreshData();
   }
 
@@ -299,18 +294,6 @@ export default function App() {
       setScanStatus('matched'); // Matatu found
     }, 1500);
   };
-
-  const handleCodeSubmit = () => {
-    if(manualCode.length === 3) {
-        setScanStatus('scanning');
-        setScanError('');
-        setTimeout(() => {
-            const randomRoute = ROUTES[Math.floor(Math.random() * ROUTES.length)];
-            setSelectedRouteId(randomRoute.id);
-            setScanStatus('matched');
-        }, 1000);
-    }
-  }
 
     const handleQrDetected = (payload: string) => {
         setScannedId(payload);
@@ -396,7 +379,6 @@ export default function App() {
     setScannedId('');
     setSelectedRouteId(null);
     setScanStatus('idle');
-    setManualCode('');
         setScanError('');
   };
 
@@ -670,75 +652,17 @@ export default function App() {
         {/* Phase 1: Identify Matatu (Discovery) */}
         {!selectedRouteId && (
             <>
-                <div className={`flex p-1 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-gray-100'}`}>
-                    {(['qr', 'code'] as const).map((m) => (
-                        <button
-                            key={m}
-                            onClick={() => {
-                                setPayMethod(m);
-                                setScanStatus('idle');
-                                setScannedId('');
-                                setScanError('');
-                            }}
-                            className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all flex justify-center gap-2 items-center ${
-                                payMethod === m 
-                                ? 'bg-white shadow-sm text-black' 
-                                : (isDark ? 'text-gray-400 hover:text-white' : 'text-gray-500 hover:text-gray-900')
-                            }`}
-                        >
-                            {m === 'qr' && <QrCode size={16} />}
-                            {m === 'code' && <Keyboard size={16} />}
-                            <span className="uppercase">{m === 'qr' ? 'Scan QR' : 'Enter Code'}</span>
-                        </button>
-                    ))}
-                </div>
-
                 <div className="flex-1 flex flex-col items-center justify-center space-y-8">
-                    {payMethod === 'qr' && (
-                        <div className="text-center space-y-6 w-full">
-                            <h3 className={`font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{t.identifyRide}</h3>
-                            <TripQrScanner
-                                active={view === View.SCAN && payMethod === 'qr' && !selectedRouteId}
-                                isDark={isDark}
-                                scanError={scanError}
-                                onDetected={handleQrDetected}
-                                onSimulate={handleDiscoverySimulate}
-                            />
-                        </div>
-                    )}
-
-                    {payMethod === 'code' && scanStatus === 'idle' && (
-                        <div className="text-center space-y-6 w-full">
-                            <h3 className={`font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{t.identifyRide}</h3>
-                            <div className="w-full max-w-xs mx-auto space-y-4">
-                                <label className={`block text-left font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{t.matatuCode}</label>
-                                <input 
-                                    type="text"
-                                    maxLength={3}
-                                    placeholder="e.g. 123"
-                                    value={manualCode}
-                                    onChange={(e) => setManualCode(e.target.value)}
-                                    className={`w-full text-center text-3xl tracking-widest font-mono py-4 rounded-xl border uppercase ${
-                                        isDark ? 'bg-gray-800 border-gray-600 text-white' : 'bg-white border-gray-300'
-                                    }`}
-                                />
-                                <button 
-                                    onClick={handleCodeSubmit}
-                                    disabled={manualCode.length !== 3}
-                                    className="w-full bg-black text-white py-3 rounded-xl font-bold disabled:opacity-50"
-                                >
-                                    Enter Code
-                                </button>
-                            </div>
-                        </div>
-                    )}
-
-                    {payMethod === 'code' && scanStatus === 'scanning' && (
-                         <div className="text-center">
-                            <div className="w-16 h-16 border-4 border-yellow-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                            <p className={`font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>Finding Matatu...</p>
-                        </div>
-                    )}
+                    <div className="text-center space-y-6 w-full">
+                        <h3 className={`font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{t.identifyRide}</h3>
+                        <TripQrScanner
+                            active={view === View.SCAN && !selectedRouteId}
+                            isDark={isDark}
+                            scanError={scanError}
+                            onDetected={handleQrDetected}
+                            onSimulate={handleDiscoverySimulate}
+                        />
+                    </div>
                 </div>
             </>
         )}

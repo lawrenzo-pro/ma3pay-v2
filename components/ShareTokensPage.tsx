@@ -5,7 +5,7 @@ import { wallet } from '../services/api';
 
 interface ShareTokensPageProps {
   onBack: () => void;
-  onTransfer: (amount: number, recipient: string) => void;
+    onTransfer: (newBalance: number, amount: number, recipient: string) => void;
   balance: number;
   isDark: boolean;
   lang: 'en' | 'sw';
@@ -38,10 +38,14 @@ export const ShareTokensPage: React.FC<ShareTokensPageProps> = ({ onBack, onTran
     setStatus('processing');
     
     try {
-        await wallet.transfer(recipient, val);
+        const response = await wallet.transfer(recipient, val);
+        const newBalance = Number(response?.newBalance);
+        if (Number.isNaN(newBalance)) {
+            throw new Error('Invalid balance response');
+        }
         setStatus('success');
         // Trigger parent callback to update UI state
-        onTransfer(val, recipient);
+        onTransfer(newBalance, val, recipient);
         
         setTimeout(() => {
             onBack();
