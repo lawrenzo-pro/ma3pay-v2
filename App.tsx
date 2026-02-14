@@ -34,7 +34,8 @@ import { PaymentPage } from './components/PaymentPage';
 import { AuthPage } from './components/AuthPage';
 import { RatingPage } from './components/RatingPage';
 import { ShareTokensPage } from './components/ShareTokensPage';
-import { wallet } from './services/api';
+import { TripQrScanner } from './components/TripQrScanner';
+import { wallet, tags } from './services/api';
 
 enum View {
   HOME,
@@ -67,6 +68,7 @@ export default function App() {
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
   const [payMethod, setPayMethod] = useState<'qr' | 'code'>('qr'); // Only for discovery now
   const [manualCode, setManualCode] = useState('');
+    const [scanError, setScanError] = useState('');
   
   // Enrollment State
   const [enrollStatus, setEnrollStatus] = useState<'idle' | 'scanning' | 'success'>('idle');
@@ -157,6 +159,42 @@ export default function App() {
     setView(View.AUTH);
   };
 
+    const resolveRouteIdFromQr = (payload: string): string | null => {
+        const raw = payload.trim();
+        if (!raw) return null;
+
+        const lower = raw.toLowerCase();
+        let routeId: string | null = null;
+
+        const routeMatch = lower.match(/route(?:id)?=([0-9]+)/i) || lower.match(/ma3pay:route:([0-9]+)/i);
+        if (routeMatch) {
+            routeId = routeMatch[1];
+        }
+
+        if (!routeId && /^[0-9]+$/.test(lower)) {
+            routeId = lower;
+        }
+
+        if (!routeId && raw.startsWith('{')) {
+            try {
+                const parsed = JSON.parse(raw);
+                if (parsed?.routeId) {
+                    routeId = String(parsed.routeId);
+                } else if (parsed?.route) {
+                    routeId = String(parsed.route);
+                }
+            } catch (error) {
+                console.warn('QR payload not JSON', error);
+            }
+        }
+
+        const byId = routeId ? ROUTES.find((route) => route.id === routeId) : null;
+        if (byId) return byId.id;
+
+        const byName = ROUTES.find((route) => lower.includes(route.name.toLowerCase()));
+        return byName ? byName.id : null;
+    };
+
   const handleTopUpSuccess = (transaction: Transaction) => {
     if (user) {
       // Optimistically update balance locally so the user sees the effect immediately
@@ -165,6 +203,22 @@ export default function App() {
       setView(View.HOME);
     }
   };
+
+    const enrollTag = async (tagUid: string) => {
+        try {
+            await tags.enroll(tagUid);
+            setUser(prev => prev ? ({ ...prev, nfcTagId: tagUid }) : prev);
+            setEnrollStatus('success');
+            setTimeout(() => {
+                setView(View.HOME);
+                setEnrollStatus('idle');
+            }, 2000);
+        } catch (error) {
+            console.error('Tag enroll failed', error);
+            setEnrollStatus('idle');
+            alert('Failed to enroll tag. Please try again.');
+        }
+    };
 
   const handleEnrollScan = async () => {
     setEnrollStatus('scanning');
@@ -178,13 +232,8 @@ export default function App() {
             // Set up one-time listener
             ndef.onreading = (event: any) => {
                 const serialNumber = event.serialNumber; // e.g., "04:a3:..."
-                if (user && serialNumber) {
-                    setUser({...user, nfcTagId: serialNumber});
-                    setEnrollStatus('success');
-                    setTimeout(() => {
-                        setView(View.HOME);
-                        setEnrollStatus('idle');
-                    }, 2000);
+                if (serialNumber) {
+                    enrollTag(serialNumber);
                 }
             };
             return; // Wait for real tag
@@ -197,14 +246,7 @@ export default function App() {
     // Fallback Simulation
     setTimeout(() => {
       const newTagId = MOCK_NFC_IDS[Math.floor(Math.random() * MOCK_NFC_IDS.length)];
-      if (user) {
-        setUser({...user, nfcTagId: newTagId});
-      }
-      setEnrollStatus('success');
-      setTimeout(() => {
-        setView(View.HOME);
-        setEnrollStatus('idle');
-      }, 2000);
+            enrollTag(newTagId);
     }, 2000);
   }
 
@@ -218,6 +260,7 @@ export default function App() {
   // Discovery Scan (QR/Code)
   const handleDiscoverySimulate = () => {
     setScanStatus('scanning');
+        setScanError('');
     setTimeout(() => {
       // Simulate finding a route
       const randomRoute = ROUTES[Math.floor(Math.random() * ROUTES.length)];
@@ -229,6 +272,7 @@ export default function App() {
   const handleCodeSubmit = () => {
     if(manualCode.length === 3) {
         setScanStatus('scanning');
+        setScanError('');
         setTimeout(() => {
             const randomRoute = ROUTES[Math.floor(Math.random() * ROUTES.length)];
             setSelectedRouteId(randomRoute.id);
@@ -236,6 +280,19 @@ export default function App() {
         }, 1000);
     }
   }
+
+    const handleQrDetected = (payload: string) => {
+        setScannedId(payload);
+        const routeId = resolveRouteIdFromQr(payload);
+        if (!routeId) {
+            setScanError('QR code not recognized. Try another code or enter a matatu code.');
+            return;
+        }
+
+        setScanError('');
+        setSelectedRouteId(routeId);
+        setScanStatus('matched');
+    };
 
   // Payment Authorization Scan (NFC)
   const handlePaymentAuthScan = async () => {
@@ -309,6 +366,7 @@ export default function App() {
     setSelectedRouteId(null);
     setScanStatus('idle');
     setManualCode('');
+        setScanError('');
   };
 
   // Only render auth page if no user
@@ -571,6 +629,7 @@ export default function App() {
                 setView(View.HOME);
                 setScanStatus('idle');
                 setSelectedRouteId(null);
+                setScanError('');
             }} className={`p-2 rounded-full transition-colors ${isDark ? 'hover:bg-gray-800 text-white' : 'hover:bg-gray-200 text-black'}`}>
                 <ArrowRight className="rotate-180" />
             </button>
@@ -588,6 +647,7 @@ export default function App() {
                                 setPayMethod(m);
                                 setScanStatus('idle');
                                 setScannedId('');
+                                setScanError('');
                             }}
                             className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all flex justify-center gap-2 items-center ${
                                 payMethod === m 
@@ -603,44 +663,46 @@ export default function App() {
                 </div>
 
                 <div className="flex-1 flex flex-col items-center justify-center space-y-8">
-                    {scanStatus === 'idle' && (
+                    {payMethod === 'qr' && (
                         <div className="text-center space-y-6 w-full">
                             <h3 className={`font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{t.identifyRide}</h3>
-                            
-                            {payMethod === 'qr' && (
-                                <div className={`w-64 h-64 rounded-3xl border-2 border-dashed flex flex-col items-center justify-center mx-auto relative overflow-hidden ${isDark ? 'bg-gray-800 border-gray-600' : 'bg-white border-gray-300'}`}>
-                                     <QrCode className="w-16 h-16 text-gray-400 mb-4" />
-                                     <p className="text-gray-500">{t.scanQr}</p>
-                                     <button onClick={handleDiscoverySimulate} className="mt-4 text-yellow-600 font-bold text-sm">Simulate Camera</button>
-                                </div>
-                            )}
-
-                            {payMethod === 'code' && (
-                                <div className="w-full max-w-xs mx-auto space-y-4">
-                                    <label className={`block text-left font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{t.matatuCode}</label>
-                                    <input 
-                                        type="text"
-                                        maxLength={3}
-                                        placeholder="e.g. 123"
-                                        value={manualCode}
-                                        onChange={(e) => setManualCode(e.target.value)}
-                                        className={`w-full text-center text-3xl tracking-widest font-mono py-4 rounded-xl border uppercase ${
-                                            isDark ? 'bg-gray-800 border-gray-600 text-white' : 'bg-white border-gray-300'
-                                        }`}
-                                    />
-                                    <button 
-                                        onClick={handleCodeSubmit}
-                                        disabled={manualCode.length !== 3}
-                                        className="w-full bg-black text-white py-3 rounded-xl font-bold disabled:opacity-50"
-                                    >
-                                        Enter Code
-                                    </button>
-                                </div>
-                            )}
+                            <TripQrScanner
+                                active={view === View.SCAN && payMethod === 'qr' && !selectedRouteId}
+                                isDark={isDark}
+                                scanError={scanError}
+                                onDetected={handleQrDetected}
+                                onSimulate={handleDiscoverySimulate}
+                            />
                         </div>
                     )}
 
-                    {scanStatus === 'scanning' && (
+                    {payMethod === 'code' && scanStatus === 'idle' && (
+                        <div className="text-center space-y-6 w-full">
+                            <h3 className={`font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{t.identifyRide}</h3>
+                            <div className="w-full max-w-xs mx-auto space-y-4">
+                                <label className={`block text-left font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{t.matatuCode}</label>
+                                <input 
+                                    type="text"
+                                    maxLength={3}
+                                    placeholder="e.g. 123"
+                                    value={manualCode}
+                                    onChange={(e) => setManualCode(e.target.value)}
+                                    className={`w-full text-center text-3xl tracking-widest font-mono py-4 rounded-xl border uppercase ${
+                                        isDark ? 'bg-gray-800 border-gray-600 text-white' : 'bg-white border-gray-300'
+                                    }`}
+                                />
+                                <button 
+                                    onClick={handleCodeSubmit}
+                                    disabled={manualCode.length !== 3}
+                                    className="w-full bg-black text-white py-3 rounded-xl font-bold disabled:opacity-50"
+                                >
+                                    Enter Code
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {payMethod === 'code' && scanStatus === 'scanning' && (
                          <div className="text-center">
                             <div className="w-16 h-16 border-4 border-yellow-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
                             <p className={`font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>Finding Matatu...</p>

@@ -96,4 +96,11 @@ export const matatus = {
     }
 };
 
+export const tags = {
+    enroll: async (tagUid: string) => {
+        const response = await api.post('/tags/enroll', { tagUid });
+        return response.data;
+    }
+};
+
 export default api;
