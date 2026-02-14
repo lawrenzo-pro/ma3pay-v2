@@ -99,10 +99,10 @@ export default function App() {
     try {
         const txs = await wallet.getActivity();
         setHistory(txs);
-        // Note: Since the backend snippet doesn't have a dedicated "get profile" endpoint 
-        // to fetch the exact current balance, we rely on optimistic local updates 
-        // for the balance in the UI during the session, and the /auth/login response 
-        // for the initial balance source of truth.
+        
+        // Also fetch the latest balance from backend to ensure accuracy
+        const balanceData = await wallet.getBalance();
+        setUser(prev => prev ? ({ ...prev, balance: balanceData.balance }) : null);
     } catch (e) {
         console.error("Failed to fetch history", e);
     }
@@ -141,6 +141,17 @@ export default function App() {
                 refreshTags();
         }
     }, [user, refreshData, refreshTags]);
+
+    // Periodic refresh: update balance and history every 30 seconds
+    useEffect(() => {
+        if (!user) return;
+
+        const interval = setInterval(() => {
+            refreshData();
+        }, 30000); // 30 seconds
+
+        return () => clearInterval(interval);
+    }, [user, refreshData]);
 
   // Calculate spending data dynamically from history
   const spendingData = useMemo(() => {
