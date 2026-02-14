@@ -145,6 +145,7 @@ export const TripQrScanner: React.FC<TripQrScannerProps> = ({
           <video
             ref={videoRef}
             className="w-full h-full object-cover"
+            autoPlay
             muted
             playsInline
           />
