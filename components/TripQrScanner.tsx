@@ -208,6 +208,12 @@ export const TripQrScanner: React.FC<TripQrScannerProps> = ({
           <RefreshCcw size={16} />
           Retry
         </button>
+        <button
+          onClick={onSimulate}
+          className="flex flex-1 items-center justify-center gap-2 px-4 py-3 rounded-xl bg-yellow-500 hover:bg-yellow-400 text-black text-sm font-semibold transition-all"
+        >
+          Simulate Scan
+        </button>
       </div>
     </div>
   );

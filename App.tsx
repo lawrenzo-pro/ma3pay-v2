@@ -31,6 +31,7 @@ import { PaymentPage } from './components/PaymentPage';
 import { AuthPage } from './components/AuthPage';
 import { RatingPage } from './components/RatingPage';
 import { ShareTokensPage } from './components/ShareTokensPage';
+import { TripQrScanner } from './components/TripQrScanner';
 import { wallet, tags } from './services/api';
 
 enum View {
@@ -273,6 +274,70 @@ export default function App() {
 
     const resolveFarePrice = (route: (typeof ROUTES)[number]) => {
         return route.standardPrice;
+    };
+
+    const findRouteFromQr = (value: string) => {
+        const normalized = value.trim().toLowerCase();
+        if (!normalized) return null;
+        return ROUTES.find((route) => {
+            const routeName = route.name.toLowerCase();
+            const routeTail = route.name.split('-')[1]?.trim().toLowerCase() || '';
+            return route.id === value.trim() || routeName === normalized || routeTail === normalized;
+        }) || null;
+    };
+
+    const handleSimulateScan = () => {
+        const route = ROUTES[Math.floor(Math.random() * ROUTES.length)];
+        const plate = `K${Math.random().toString(36).slice(2, 5).toUpperCase()} ${Math.floor(100 + Math.random() * 900)}${String.fromCharCode(65 + Math.floor(Math.random() * 26))}`;
+        setScannedId(plate);
+        setSelectedRouteId(route.id);
+        setScanStatus('matched');
+        setScanError('');
+    };
+
+    const handleQrDetected = (payload: string) => {
+        const raw = payload.trim();
+        if (!raw) {
+            setScanError('Empty QR code detected. Try again.');
+            return;
+        }
+
+        let detectedPlate = '';
+        let routeRef = '';
+
+        try {
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object') {
+                detectedPlate = String(parsed.numberplate || parsed.plate || parsed.matatuCode || parsed.vehicle || '').trim();
+                routeRef = String(parsed.routeId || parsed.route || parsed.routeName || '').trim();
+            }
+        } catch {
+            const parts = raw.split(/[|,;]/).map((part) => part.trim()).filter(Boolean);
+            if (parts.length >= 2) {
+                detectedPlate = parts[0];
+                routeRef = parts[1];
+            } else {
+                detectedPlate = raw;
+            }
+        }
+
+        if (!detectedPlate) {
+            setScanError('QR does not include a valid number plate.');
+            return;
+        }
+
+        const resolvedRoute = routeRef ? findRouteFromQr(routeRef) : null;
+
+        setScannedId(detectedPlate.toUpperCase());
+        if (resolvedRoute) {
+            setSelectedRouteId(resolvedRoute.id);
+            setScanStatus('matched');
+            setScanError('');
+            return;
+        }
+
+        setScanStatus('idle');
+        setScanError('QR scanned. Select a route to continue payment.');
     };
 
     const finalizeFarePayment = (route: (typeof ROUTES)[number], price: number) => {
@@ -640,6 +705,20 @@ export default function App() {
                 <div className="flex-1 flex flex-col items-center justify-center space-y-6">
                     <div className="w-full max-w-sm space-y-6">
                         <h3 className={`font-semibold text-center ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{t.identifyRide}</h3>
+
+                        <TripQrScanner
+                            active={view === View.SCAN && scanStatus !== 'matched'}
+                            isDark={isDark}
+                            scanError={scanError}
+                            onDetected={handleQrDetected}
+                            onSimulate={handleSimulateScan}
+                        />
+
+                        <div className="relative flex items-center">
+                            <div className={`h-px flex-1 ${isDark ? 'bg-gray-700' : 'bg-gray-200'}`}></div>
+                            <span className={`px-3 text-xs font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{t.or}</span>
+                            <div className={`h-px flex-1 ${isDark ? 'bg-gray-700' : 'bg-gray-200'}`}></div>
+                        </div>
                         
                         <div>
                             <label className={`block text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
