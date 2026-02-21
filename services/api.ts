@@ -4,7 +4,7 @@ import { Transaction, TransactionType, PaymentStatus } from '../types';
 // Use localhost for local development.
 // The backend runs on port 5000 (Vite uses 3000 for the frontend).
 // Change this to your ngrok URL if testing on a real device/mobile.
-const API_URL = 'https://ma3pay.pagekite.me'.trim();
+const API_URL = 'https://noneidetic-trenton-calamitously.ngrok-free.dev/'.trim();
 
 const api = axios.create({
     baseURL: API_URL,
