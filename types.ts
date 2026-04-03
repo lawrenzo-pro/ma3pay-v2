@@ -42,6 +42,122 @@ export interface Route {
   peakPrice: number;
 }
 
+export interface AppRoute {
+  id: string;
+  name: string;
+  origin: string;
+  destination: string;
+  fare: number;
+  status: string;
+  matatus: Array<{
+    id: string;
+    plateNumber: string;
+    status: string;
+  }>;
+}
+
+export interface AppDriver {
+  id: string;
+  name: string;
+  phone: string;
+  status: string;
+  assignedMatatus: Array<{
+    id: string;
+    plateNumber: string;
+    status: string;
+    RouteId?: string;
+  }>;
+}
+
+export interface AppMatatu {
+  id: string;
+  plateNumber: string;
+  sacco: string;
+  status: string;
+  route: {
+    id: string;
+    name: string;
+    origin: string;
+    destination: string;
+    fare: number;
+    status: string;
+  } | null;
+  driver: {
+    id: string;
+    name: string;
+    phone: string;
+    status: string;
+  } | null;
+  averageRating: number | null;
+  reviewCount: number;
+}
+
+export interface AppMatatuRatingsResponse {
+  matatu: {
+    id: string;
+    plateNumber: string;
+  };
+  averageRating: number | null;
+  reviewCount: number;
+  ratings: Array<{
+    id: string;
+    rating: number;
+    comment?: string;
+    createdAt: string;
+    User?: {
+      id: string;
+      name: string;
+    };
+  }>;
+}
+
+export interface AppRide {
+  id: string;
+  amount: number;
+  reference?: string;
+  description: string;
+  date: string;
+  matatu: {
+    id: string;
+    plateNumber: string;
+    sacco: string;
+    route: {
+      id: string;
+      name: string;
+      origin: string;
+      destination: string;
+      fare: number;
+      status: string;
+    } | null;
+    driver: {
+      id: string;
+      name: string;
+      phone: string;
+      status: string;
+    } | null;
+  } | null;
+}
+
+export interface AppRidesResponse {
+  count: number;
+  rides: AppRide[];
+}
+
+export interface AppFarePaymentResponse {
+  message: string;
+  plateNumber: string;
+  route?: string;
+  amount: number;
+  recipient?: {
+    adminPhone: string;
+    adminName: string;
+  };
+  balances?: {
+    payer: number | null;
+    recipient: number | null;
+  };
+}
+
 export type Language = 'en' | 'sw';
 
 // API Responses

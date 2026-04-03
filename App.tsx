@@ -3,7 +3,6 @@ import {
   CreditCard, 
   MapPin, 
   History, 
-  User, 
   Plus, 
   Wifi, 
   ArrowRight,
@@ -19,20 +18,18 @@ import {
   Star,
   Share2,
   ArrowDownLeft,
-  ArrowUpRight,
-  RefreshCcw
+    ArrowUpRight
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { ROUTES, MOCK_NFC_IDS, TRANSLATIONS } from './constants';
-import { UserProfile, Transaction, TransactionType, PaymentStatus, Language } from './types';
+import { MOCK_NFC_IDS, TRANSLATIONS } from './constants';
+import { UserProfile, Transaction, TransactionType, PaymentStatus, Language, AppRoute, AppMatatu, AppDriver } from './types';
 import { TransactionHistory } from './components/TransactionHistory';
 import { Assistant } from './components/Assistant';
 import { PaymentPage } from './components/PaymentPage';
 import { AuthPage } from './components/AuthPage';
 import { RatingPage } from './components/RatingPage';
 import { ShareTokensPage } from './components/ShareTokensPage';
-import { TripQrScanner } from './components/TripQrScanner';
-import { wallet, tags } from './services/api';
+import { wallet, tags, appCatalog } from './services/api';
 
 enum View {
   HOME,
@@ -45,8 +42,6 @@ enum View {
   RATING,
   SHARE
 }
-
-const MATATU_PHONE = '0795182243';
 
 export default function App() {
   const [view, setView] = useState<View>(View.AUTH);
@@ -62,17 +57,17 @@ export default function App() {
   const [selectedTopUpAmount, setSelectedTopUpAmount] = useState(0);
 
   // Scan/Redeem State
-  const [scannedId, setScannedId] = useState('');
-    const [scanStatus, setScanStatus] = useState<'idle' | 'matched'>('idle');
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
-    const [scanError, setScanError] = useState('');
-    const [farePhone, setFarePhone] = useState('');
+    const [selectedMatatuId, setSelectedMatatuId] = useState<string | null>(null);
     const [fareError, setFareError] = useState('');
     const [isFarePaying, setIsFarePaying] = useState(false);
-    const [showTopUp, setShowTopUp] = useState(false);
-    const [topUpAmount, setTopUpAmount] = useState(0);
-    const [isSendingStk, setIsSendingStk] = useState(false);
     const [stkMessage, setStkMessage] = useState('');
+    const [routesCatalog, setRoutesCatalog] = useState<AppRoute[]>([]);
+    const [matatusCatalog, setMatatusCatalog] = useState<AppMatatu[]>([]);
+    const [driversCatalog, setDriversCatalog] = useState<AppDriver[]>([]);
+    const [selectedMatatuRating, setSelectedMatatuRating] = useState<{ averageRating: number | null; reviewCount: number } | null>(null);
+    const [isCatalogLoading, setIsCatalogLoading] = useState(false);
+    const [catalogError, setCatalogError] = useState('');
   
   // Enrollment State
   const [enrollStatus, setEnrollStatus] = useState<'idle' | 'scanning' | 'success'>('idle');
@@ -100,12 +95,6 @@ export default function App() {
         localStorage.setItem('ma3pay_user', JSON.stringify(user));
     }
   }, [user]);
-
-    useEffect(() => {
-        if (user?.phoneNumber) {
-            setFarePhone(user.phoneNumber);
-        }
-    }, [user]);
 
   // Fetch latest data from backend
     const refreshData = useCallback(async () => {
@@ -272,160 +261,91 @@ export default function App() {
       refreshData();
   }
 
-    const resolveFarePrice = (route: (typeof ROUTES)[number]) => {
-        return route.standardPrice;
-    };
-
-    const findRouteFromQr = (value: string) => {
-        const normalized = value.trim().toLowerCase();
-        if (!normalized) return null;
-        return ROUTES.find((route) => {
-            const routeName = route.name.toLowerCase();
-            const routeTail = route.name.split('-')[1]?.trim().toLowerCase() || '';
-            return route.id === value.trim() || routeName === normalized || routeTail === normalized;
-        }) || null;
-    };
-
-    const handleSimulateScan = () => {
-        const route = ROUTES[Math.floor(Math.random() * ROUTES.length)];
-        const plate = `K${Math.random().toString(36).slice(2, 5).toUpperCase()} ${Math.floor(100 + Math.random() * 900)}${String.fromCharCode(65 + Math.floor(Math.random() * 26))}`;
-        setScannedId(plate);
-        setSelectedRouteId(route.id);
-        setScanStatus('matched');
-        setScanError('');
-    };
-
-    const handleQrDetected = (payload: string) => {
-        const raw = payload.trim();
-        if (!raw) {
-            setScanError('Empty QR code detected. Try again.');
-            return;
-        }
-
-        let detectedPlate = '';
-        let routeRef = '';
-
+    const loadFareCatalogs = useCallback(async () => {
+        setIsCatalogLoading(true);
+        setCatalogError('');
         try {
-            const parsed = JSON.parse(raw);
-            if (parsed && typeof parsed === 'object') {
-                detectedPlate = String(parsed.numberplate || parsed.plate || parsed.matatuCode || parsed.vehicle || '').trim();
-                routeRef = String(parsed.routeId || parsed.route || parsed.routeName || '').trim();
-            }
-        } catch {
-            const parts = raw.split(/[|,;]/).map((part) => part.trim()).filter(Boolean);
-            if (parts.length >= 2) {
-                detectedPlate = parts[0];
-                routeRef = parts[1];
-            } else {
-                detectedPlate = raw;
-            }
+            const [routes, matatus, drivers] = await Promise.all([
+                appCatalog.getRoutes(),
+                appCatalog.getMatatus(),
+                appCatalog.getDrivers()
+            ]);
+            setRoutesCatalog(Array.isArray(routes) ? routes : []);
+            setMatatusCatalog(Array.isArray(matatus) ? matatus : []);
+            setDriversCatalog(Array.isArray(drivers) ? drivers : []);
+        } catch (error: any) {
+            const msg = error.response?.data?.error || error.message || 'Failed to load fare catalog.';
+            setCatalogError(msg);
+        } finally {
+            setIsCatalogLoading(false);
         }
+    }, []);
 
-        if (!detectedPlate) {
-            setScanError('QR does not include a valid number plate.');
+    useEffect(() => {
+        if (view === View.SCAN) {
+            loadFareCatalogs();
+        }
+    }, [view, loadFareCatalogs]);
+
+    useEffect(() => {
+        if (!selectedMatatuId) {
+            setSelectedMatatuRating(null);
             return;
         }
 
-        const resolvedRoute = routeRef ? findRouteFromQr(routeRef) : null;
+        let cancelled = false;
+        const loadMatatuRatings = async () => {
+            try {
+                const res = await appCatalog.getMatatuRatings(selectedMatatuId);
+                if (!cancelled) {
+                    setSelectedMatatuRating({
+                        averageRating: res.averageRating,
+                        reviewCount: res.reviewCount
+                    });
+                }
+            } catch {
+                if (!cancelled) {
+                    setSelectedMatatuRating(null);
+                }
+            }
+        };
 
-        setScannedId(detectedPlate.toUpperCase());
-        if (resolvedRoute) {
-            setSelectedRouteId(resolvedRoute.id);
-            setScanStatus('matched');
-            setScanError('');
-            return;
-        }
-
-        setScanStatus('idle');
-        setScanError('QR scanned. Select a route to continue payment.');
-    };
-
-    const finalizeFarePayment = (route: (typeof ROUTES)[number], price: number) => {
-    if (!user) return;
-
-    const tx: Transaction = {
-      id: `TR${Date.now()}`,
-      type: TransactionType.PAYMENT,
-      amount: price,
-      date: new Date().toISOString(),
-      description: `${t.trip} ${route.name.split('-')[1]}`,
-      route: route.name,
-      status: PaymentStatus.SUCCESS
-    };
-
-    // Optimistic update: Subtract fare locally
-    setUser(prev => prev ? ({ ...prev, balance: prev.balance - price }) : null);
-    setHistory(prev => [tx, ...prev]);
-    
-    setView(View.HOME);
-    setScannedId('');
-    setSelectedRouteId(null);
-    setScanStatus('idle');
-        setScanError('');
-  };
+        loadMatatuRatings();
+        return () => {
+            cancelled = true;
+        };
+    }, [selectedMatatuId]);
 
     const handleFarePay = async () => {
-        const route = ROUTES.find(r => r.id === selectedRouteId);
-        if (!route || !user) return;
+        const route = routesCatalog.find(r => String(r.id) === String(selectedRouteId));
+        const selectedMatatu = matatusCatalog.find(m => String(m.id) === String(selectedMatatuId));
+        if (!route || !user || !selectedMatatu?.plateNumber) return;
 
         setFareError('');
         setStkMessage('');
         setIsFarePaying(true);
 
-        const price = resolveFarePrice(route);
-        if (user.balance < price) {
-            setTopUpAmount(Math.max(price - user.balance, 0));
-            setShowTopUp(true);
-            setFareError(t.insufficientFunds);
-            setIsFarePaying(false);
-            return;
-        }
-
+        const price = Number(route.fare) || 0;
         try {
-            await wallet.transfer(MATATU_PHONE, price);
+            const response = await appCatalog.payFare(selectedMatatu.plateNumber, price);
+            if (response?.message) {
+                setStkMessage(response.message);
+            }
             await refreshData();
             setView(View.HOME);
-            setScannedId('');
             setSelectedRouteId(null);
-            setScanStatus('idle');
-            setScanError('');
-            setShowTopUp(false);
+            setSelectedMatatuId(null);
         } catch (error: any) {
-            const msg = error.response?.data?.error
-                || error.response?.data?.message
+            const backendError = error.response?.data?.error;
+            const backendMessage = error.response?.data?.message;
+            const msg = backendError
+                || backendMessage
                 || error.message
                 || 'Fare payment failed.';
             setFareError(msg);
+            setStkMessage(backendMessage || '');
         } finally {
             setIsFarePaying(false);
-        }
-    };
-
-    const handleSendStkPush = async () => {
-        const route = ROUTES.find(r => r.id === selectedRouteId);
-        if (!route) return;
-
-        const amount = topUpAmount > 0 ? topUpAmount : resolveFarePrice(route);
-        if (!farePhone.trim()) {
-            setFareError('Enter phone number to receive STK push.');
-            return;
-        }
-
-        setIsSendingStk(true);
-        setFareError('');
-        setStkMessage('');
-
-        try {
-            await wallet.deposit(amount, farePhone.trim());
-            setStkMessage('STK push sent. Complete it on your phone, then tap Pay.');
-        } catch (error: any) {
-            const msg = error.response?.data?.error
-                || error.response?.data?.message
-                || error.message
-                || 'Failed to send STK push.';
-            setFareError(msg);
-        } finally {
-            setIsSendingStk(false);
         }
     };
 
@@ -682,196 +602,167 @@ export default function App() {
   );
 
     const renderScan = () => {
-        const selectedRoute = ROUTES.find(r => r.id === selectedRouteId) || null;
-        const farePrice = selectedRoute ? resolveFarePrice(selectedRoute) : 0;
+        const selectedRoute = routesCatalog.find((r) => String(r.id) === String(selectedRouteId)) || null;
+        const matatusForRoute = selectedRouteId
+            ? matatusCatalog.filter((m) => String(m.route?.id) === String(selectedRouteId))
+            : [];
+        const selectedMatatu = matatusForRoute.find((m) => String(m.id) === String(selectedMatatuId)) || null;
+        const selectedDriver = selectedMatatu?.driver
+            || driversCatalog.find((driver) =>
+                (driver.assignedMatatus || []).some((m) => String(m.id) === String(selectedMatatu?.id))
+            )
+            || null;
+        const farePrice = selectedRoute ? Number(selectedRoute.fare) || 0 : 0;
 
         return (
         <div className="space-y-6 h-full flex flex-col">
-         <div className="flex items-center gap-4">
-            <button onClick={() => {
-                setView(View.HOME);
-                setScanStatus('idle');
-                setSelectedRouteId(null);
-                setScanError('');
-            }} className={`p-2 rounded-full transition-colors ${isDark ? 'hover:bg-gray-800 text-white' : 'hover:bg-gray-200 text-black'}`}>
-                <ArrowRight className="rotate-180" />
-            </button>
-            <h2 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{t.pay}</h2>
+            <div className="flex items-center gap-4">
+                <button
+                    onClick={() => {
+                        setView(View.HOME);
+                        setSelectedRouteId(null);
+                        setSelectedMatatuId(null);
+                        setFareError('');
+                    }}
+                    className={`p-2 rounded-full transition-colors ${isDark ? 'hover:bg-gray-800 text-white' : 'hover:bg-gray-200 text-black'}`}
+                >
+                    <ArrowRight className="rotate-180" />
+                </button>
+                <h2 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{t.pay}</h2>
+            </div>
+
+            <div className="w-full max-w-sm mx-auto space-y-4">
+                {isCatalogLoading && (
+                    <div className={`text-sm rounded-xl p-3 border ${isDark ? 'bg-blue-900/30 border-blue-700/40 text-blue-200' : 'bg-blue-50 border-blue-200 text-blue-700'}`}>
+                        Loading routes and matatus...
+                    </div>
+                )}
+
+                {catalogError && (
+                    <div className={`text-sm rounded-xl p-3 border ${isDark ? 'bg-red-900/30 border-red-700/40 text-red-200' : 'bg-red-50 border-red-200 text-red-600'}`}>
+                        {catalogError}
+                    </div>
+                )}
+
+                <div>
+                    <label className={`block text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                        {t.selectRoute}
+                    </label>
+                    <select
+                        value={selectedRouteId || ''}
+                        onChange={(e) => {
+                            const value = e.target.value || null;
+                            setSelectedRouteId(value);
+                            setSelectedMatatuId(null);
+                            setFareError('');
+                        }}
+                        className={`w-full px-4 py-3 rounded-xl border font-medium focus:ring-2 focus:ring-yellow-500 outline-none transition-all ${
+                            isDark
+                                ? 'bg-gray-800 border-gray-700 text-white'
+                                : 'bg-white border-gray-200 text-black'
+                        }`}
+                    >
+                        <option value="">-- Select a Route --</option>
+                        {routesCatalog.map((route) => (
+                            <option key={route.id} value={route.id}>
+                                {route.name || `${route.origin} - ${route.destination}`} (KES {route.fare})
+                            </option>
+                        ))}
+                    </select>
+                </div>
+
+                <div>
+                    <label className={`block text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                        {t.numberplate}
+                    </label>
+                    <select
+                        value={selectedMatatuId || ''}
+                        onChange={(e) => {
+                            setSelectedMatatuId(e.target.value || null);
+                            setFareError('');
+                        }}
+                        disabled={!selectedRouteId}
+                        className={`w-full px-4 py-3 rounded-xl border font-medium focus:ring-2 focus:ring-yellow-500 outline-none transition-all ${
+                            isDark
+                                ? 'bg-gray-800 border-gray-700 text-white'
+                                : 'bg-white border-gray-200 text-black'
+                        } disabled:opacity-60`}
+                    >
+                        <option value="">-- Select Matatu --</option>
+                        {matatusForRoute.map((matatu) => (
+                            <option key={matatu.id} value={matatu.id}>
+                                {matatu.plateNumber} • {matatu.sacco}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+
+                {selectedRoute && (
+                    <div className={`p-4 rounded-2xl border ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+                        <div className="flex items-center gap-3 mb-3">
+                            <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center text-green-600">
+                                <Bus size={20} />
+                            </div>
+                            <div>
+                                <p className="text-xs text-gray-500">Route</p>
+                                <p className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                    {selectedRoute.name || `${selectedRoute.origin} - ${selectedRoute.destination}`}
+                                </p>
+                            </div>
+                        </div>
+                        <div className="flex justify-between items-center">
+                            <span className={`text-sm ${isDark ? 'text-yellow-300' : 'text-yellow-700'}`}>Fare</span>
+                            <span className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>KES {farePrice}</span>
+                        </div>
+                    </div>
+                )}
+
+                {selectedMatatu && (
+                    <div className={`p-4 rounded-2xl border text-sm space-y-2 ${isDark ? 'bg-gray-800 border-gray-700 text-gray-100' : 'bg-white border-gray-200 text-gray-700'}`}>
+                        <p><span className="font-semibold">Matatu:</span> {selectedMatatu.plateNumber} ({selectedMatatu.status})</p>
+                        {selectedDriver && (
+                            <p><span className="font-semibold">Driver:</span> {selectedDriver.name} • {selectedDriver.phone}</p>
+                        )}
+                        {selectedMatatuRating && (
+                            <p>
+                                <span className="font-semibold">Rating:</span>{' '}
+                                {selectedMatatuRating.averageRating ?? 'N/A'} / 5 ({selectedMatatuRating.reviewCount} reviews)
+                            </p>
+                        )}
+                    </div>
+                )}
+
+                <button
+                    onClick={handleFarePay}
+                    disabled={isFarePaying || !selectedRouteId || !selectedMatatuId}
+                    className="w-full bg-green-600 text-white font-bold py-4 rounded-xl hover:bg-green-700 transition-all shadow-lg shadow-green-600/20 disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                    {isFarePaying ? 'Processing...' : `Pay KES ${farePrice}`}
+                </button>
+
+                {fareError && (
+                    <div className={`text-xs rounded-xl p-3 border ${
+                        isDark
+                            ? 'bg-red-900/30 border-red-700/40 text-red-200'
+                            : 'bg-red-50 border-red-200 text-red-600'
+                    }`}>
+                        {fareError}
+                    </div>
+                )}
+
+                {stkMessage && (
+                    <div className={`text-xs rounded-xl p-3 border ${
+                        isDark
+                            ? 'bg-green-900/30 border-green-700/40 text-green-200'
+                            : 'bg-green-50 border-green-200 text-green-700'
+                    }`}>
+                        {stkMessage}
+                    </div>
+                )}
+            </div>
         </div>
-
-        {/* Phase 1: Identify Matatu (Discovery) */}
-        {scanStatus !== 'matched' && (
-            <>
-                <div className="flex-1 flex flex-col items-center justify-center space-y-6">
-                    <div className="w-full max-w-sm space-y-6">
-                        <h3 className={`font-semibold text-center ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{t.identifyRide}</h3>
-
-                        <TripQrScanner
-                            active={view === View.SCAN && scanStatus !== 'matched'}
-                            isDark={isDark}
-                            scanError={scanError}
-                            onDetected={handleQrDetected}
-                            onSimulate={handleSimulateScan}
-                        />
-
-                        <div className="relative flex items-center">
-                            <div className={`h-px flex-1 ${isDark ? 'bg-gray-700' : 'bg-gray-200'}`}></div>
-                            <span className={`px-3 text-xs font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{t.or}</span>
-                            <div className={`h-px flex-1 ${isDark ? 'bg-gray-700' : 'bg-gray-200'}`}></div>
-                        </div>
-                        
-                        <div>
-                            <label className={`block text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                                {t.numberplate}
-                            </label>
-                            <input
-                                type="text"
-                                placeholder="e.g., KBR 123A"
-                                value={scannedId}
-                                onChange={(e) => setScannedId(e.target.value.toUpperCase())}
-                                className={`w-full px-4 py-3 rounded-xl border font-medium tracking-wider focus:ring-2 focus:ring-yellow-500 outline-none transition-all ${
-                                    isDark
-                                        ? 'bg-gray-800 border-gray-700 text-white'
-                                        : 'bg-white border-gray-200 text-black'
-                                }`}
-                            />
-                        </div>
-
-                        <div>
-                            <label className={`block text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                                {t.selectRoute}
-                            </label>
-                            <select
-                                value={selectedRouteId || ''}
-                                onChange={(e) => e.target.value && setSelectedRouteId(e.target.value)}
-                                className={`w-full px-4 py-3 rounded-xl border font-medium focus:ring-2 focus:ring-yellow-500 outline-none transition-all ${
-                                    isDark
-                                        ? 'bg-gray-800 border-gray-700 text-white'
-                                        : 'bg-white border-gray-200 text-black'
-                                }`}
-                            >
-                                <option value="">-- Select a Route --</option>
-                                {ROUTES.map((route) => (
-                                    <option key={route.id} value={route.id}>
-                                        {route.name} (KES {route.standardPrice})
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-
-                        <button
-                            onClick={() => {
-                                if (scannedId && selectedRouteId) {
-                                    setScanStatus('matched');
-                                    setScanError('');
-                                } else {
-                                    setScanError('Please enter numberplate and select a route');
-                                }
-                            }}
-                            disabled={!scannedId || !selectedRouteId}
-                            className="w-full bg-yellow-500 hover:bg-yellow-400 text-black font-bold py-3 rounded-xl shadow-lg shadow-yellow-500/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            Continue to Payment
-                        </button>
-
-                        {scanError && (
-                            <div className={`text-xs rounded-xl p-3 border ${
-                                isDark
-                                    ? 'bg-red-900/30 border-red-700/40 text-red-200'
-                                    : 'bg-red-50 border-red-200 text-red-600'
-                            }`}>
-                                {scanError}
-                            </div>
-                        )}
-                    </div>
-                </div>
-            </>
-        )}
-
-        {/* Phase 2: Payment & Auth */}
-        {scanStatus === 'matched' && selectedRouteId && (
-             <div className="w-full flex-1 flex flex-col animate-in fade-in slide-in-from-bottom-8">
-                <div className={`p-6 rounded-2xl mb-6 ${isDark ? 'bg-gray-800' : 'bg-white border'}`}>
-                     <div className="flex items-center gap-4 mb-4">
-                         <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center text-green-600">
-                            <Bus size={24} />
-                        </div>
-                        <div>
-                            <p className="text-sm text-gray-500">Route Selected</p>
-                            <h3 className={`font-bold text-lg ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                                {selectedRoute?.name}
-                            </h3>
-                        </div>
-                     </div>
-                     
-                     <div className="flex justify-between items-center p-4 bg-yellow-500/10 rounded-xl border border-yellow-500/20">
-                         <span className={`font-medium ${isDark ? 'text-yellow-500' : 'text-yellow-700'}`}>Standard Fare</span>
-                         <span className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>KES {farePrice}</span>
-                     </div>
-                </div>
-
-                <div className="flex-1 flex flex-col items-center justify-center space-y-6">
-                    <div className="w-full max-w-sm space-y-4">
-                        <button
-                            onClick={handleFarePay}
-                            disabled={isFarePaying}
-                            className="w-full bg-green-600 text-white font-bold py-4 rounded-xl hover:bg-green-700 transition-all shadow-lg shadow-green-600/20 disabled:opacity-60 disabled:cursor-not-allowed"
-                        >
-                            {isFarePaying ? 'Processing...' : `Pay KES ${farePrice}`}
-                        </button>
-
-                        {showTopUp && (
-                            <div className={`space-y-3 rounded-2xl border p-4 ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-                                <label className={`block text-sm font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                                    {t.phoneNumber}
-                                </label>
-                                <input
-                                    type="tel"
-                                    value={farePhone}
-                                    onChange={(e) => setFarePhone(e.target.value)}
-                                    placeholder="07XX XXX XXX"
-                                    className={`w-full px-4 py-3 rounded-xl border font-medium focus:ring-2 focus:ring-yellow-500 outline-none transition-all ${
-                                        isDark
-                                            ? 'bg-gray-800 border-gray-700 text-white'
-                                            : 'bg-white border-gray-200 text-black'
-                                    }`}
-                                />
-                                <button
-                                    onClick={handleSendStkPush}
-                                    disabled={isSendingStk}
-                                    className="w-full bg-yellow-500 hover:bg-yellow-400 text-black font-bold py-3 rounded-xl shadow-lg shadow-yellow-500/20 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
-                                >
-                                    {isSendingStk ? 'Sending STK Push...' : `Send STK Push for KES ${topUpAmount || farePrice}`}
-                                </button>
-                            </div>
-                        )}
-
-                        {fareError && (
-                            <div className={`text-xs rounded-xl p-3 border ${
-                                isDark
-                                    ? 'bg-red-900/30 border-red-700/40 text-red-200'
-                                    : 'bg-red-50 border-red-200 text-red-600'
-                            }`}>
-                                {fareError}
-                            </div>
-                        )}
-
-                        {stkMessage && (
-                            <div className={`text-xs rounded-xl p-3 border ${
-                                isDark
-                                    ? 'bg-green-900/30 border-green-700/40 text-green-200'
-                                    : 'bg-green-50 border-green-200 text-green-700'
-                            }`}>
-                                {stkMessage}
-                            </div>
-                        )}
-                    </div>
-                </div>
-             </div>
-        )}
-    </div>
-  );
-  };
+      );
+    };
 
   const renderHistory = () => (
       <div className="space-y-6">

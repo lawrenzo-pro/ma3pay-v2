@@ -1,5 +1,15 @@
 import axios from 'axios';
-import { Transaction, TransactionType, PaymentStatus } from '../types';
+import {
+    Transaction,
+    TransactionType,
+    PaymentStatus,
+    AppRoute,
+    AppDriver,
+    AppMatatu,
+    AppMatatuRatingsResponse,
+    AppRidesResponse,
+    AppFarePaymentResponse
+} from '../types';
 
 // Use localhost for local development.
 // The backend runs on port 5000 (Vite uses 3000 for the frontend).
@@ -104,6 +114,34 @@ export const tags = {
     },
     getAll: async () => {
         const response = await api.get('/tags');
+        return response.data;
+    }
+};
+
+export const appCatalog = {
+    getRoutes: async (): Promise<AppRoute[]> => {
+        const response = await api.get('/app/routes');
+        return response.data;
+    },
+    getDrivers: async (): Promise<AppDriver[]> => {
+        const response = await api.get('/app/drivers');
+        return response.data;
+    },
+    getMatatus: async (): Promise<AppMatatu[]> => {
+        const response = await api.get('/app/matatus');
+        return response.data;
+    },
+    getMatatuRatings: async (matatuId: string): Promise<AppMatatuRatingsResponse> => {
+        const response = await api.get(`/app/matatus/${matatuId}/ratings`);
+        return response.data;
+    },
+    getRides: async (): Promise<AppRidesResponse> => {
+        const response = await api.get('/app/rides');
+        return response.data;
+    },
+    payFare: async (plateNumber: string, amount?: number): Promise<AppFarePaymentResponse> => {
+        const payload = amount != null ? { plateNumber, amount } : { plateNumber };
+        const response = await api.post('/app/payments/fare', payload);
         return response.data;
     }
 };
